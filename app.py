@@ -1,6 +1,6 @@
 import os
 
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
 
 from controllers.auth_controller import auth_bp
@@ -8,6 +8,7 @@ from controllers.chat_controller import chat_bp
 from controllers.order_controller import order_bp
 from controllers.product_controller import product_bp
 from controllers.profile_controller import profile_bp
+from models.database import get_db_connection
 
 
 def load_env_file():
@@ -45,6 +46,18 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(profile_bp)
 app.register_blueprint(order_bp)
 app.register_blueprint(chat_bp)
+
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    try:
+        conn = get_db_connection()
+        conn.close()
+        return jsonify({'status': 'ok', 'database': 'connected'}), 200
+    except Exception as error:
+        print('Loi health check database:', error)
+        return jsonify({'status': 'error', 'database': 'disconnected'}), 500
+
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', '5000'))

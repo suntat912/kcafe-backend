@@ -223,19 +223,25 @@ def login():
     email = str(data.get('email', '')).strip().lower()
     password = str(data.get('password', '')).strip()
 
-    user = UserModel.get_user_by_email(email)
-    if user and check_password_hash(user['password'], password):
+    try:
+        user = UserModel.get_user_by_email(email)
+        if user and check_password_hash(user['password'], password):
+            return jsonify({
+                'message': 'Đăng nhập thành công!',
+                'user': {
+                    'id': user['id'],
+                    'full_name': user['full_name'],
+                    'phone': user.get('phone'),
+                    'email': user['email'],
+                    'role': user['role'],
+                    'address': user.get('address'),
+                    'avatar': user.get('avatar'),
+                },
+            }), 200
+    except Exception as error:
+        print('Loi khi dang nhap:', error)
         return jsonify({
-            'message': 'Đăng nhập thành công!',
-            'user': {
-                'id': user['id'],
-                'full_name': user['full_name'],
-                'phone': user.get('phone'),
-                'email': user['email'],
-                'role': user['role'],
-                'address': user.get('address'),
-                'avatar': user.get('avatar'),
-            },
-        }), 200
+            'message': 'Server chưa kết nối được cơ sở dữ liệu. Vui lòng kiểm tra biến môi trường DB trên Render/Aiven.'
+        }), 500
 
     return jsonify({'message': 'Email hoặc mật khẩu không chính xác!'}), 401
