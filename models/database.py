@@ -17,7 +17,7 @@ def get_db_connection():
         'user': _get_required_env('DB_USER'),
         'password': _get_required_env('DB_PASSWORD'),
         'database': _get_required_env('DB_NAME'),
-        'connection_timeout': int(os.getenv('DB_CONNECTION_TIMEOUT', '10')),
+        'connection_timeout': int(os.getenv('DB_CONNECTION_TIMEOUT', '5')),
     }
 
     ssl_ca = os.getenv('DB_SSL_CA')
