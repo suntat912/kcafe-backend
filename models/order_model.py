@@ -10,7 +10,7 @@ class OrderModel:
         return {
             'gateway': os.getenv('PAYMENT_PROVIDER', 'vietqr'),
             'bank_code': os.getenv('PAYMENT_BANK_CODE', 'VCB'),
-            'account_no': os.getenv('PAYMENT_ACCOUNT_NO', '1027982130'),
+            'account_no': os.getenv('PAYMENT_ACCOUNT_NO', ''),
         }
 
     @staticmethod
