@@ -111,16 +111,25 @@ def _extract_first_value(payload, keys):
     return None
 
 
+def _extract_first_value_by_order(payload, keys):
+    for key in keys:
+        found = _extract_first_value(payload, {key.lower()})
+        if found not in (None, ''):
+            return found
+    return None
+
+
 def _extract_payment_payload(payload):
-    amount = _extract_first_value(payload, {'amount', 'transferamount', 'value'})
-    transfer_content = _extract_first_value(
+    amount = _extract_first_value_by_order(payload, ['transferAmount', 'amount', 'value'])
+    transfer_content = _extract_first_value_by_order(
         payload,
-        {'transfercontent', 'description', 'content', 'addinfo', 'message', 'remark'},
+        ['code', 'transferContent', 'content', 'description', 'addInfo', 'message', 'remark'],
     )
-    transaction_code = _extract_first_value(
+    transaction_code = _extract_first_value_by_order(
         payload,
-        {'transactioncode', 'transactionid', 'txid', 'reference', 'referencenumber'},
+        ['referenceCode', 'transactionCode', 'transactionId', 'txId', 'reference', 'referenceNumber', 'id'],
     )
+    transfer_type = _extract_first_value_by_order(payload, ['transferType'])
     event_type = _extract_first_value(payload, {'event', 'eventtype', 'type'}) or 'payment_callback'
 
     try:
@@ -132,6 +141,7 @@ def _extract_payment_payload(payload):
         'amount': normalized_amount,
         'transfer_content': str(transfer_content).strip() if transfer_content not in (None, '') else None,
         'transaction_code': str(transaction_code).strip() if transaction_code not in (None, '') else None,
+        'transfer_type': str(transfer_type).strip().lower() if transfer_type not in (None, '') else None,
         'event_type': str(event_type),
     }
 
@@ -373,27 +383,33 @@ def confirm_transfer(order_id):
 
 @order_bp.route('/api/payments/vietqr/webhook', methods=['POST'])
 def vietqr_webhook():
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True) or request.form.to_dict() or {}
     payment_data = _extract_payment_payload(payload)
-    log_id = OrderModel.create_webhook_log('vietqr', payment_data['event_type'], payload, processed=False)
+    log_id = OrderModel.create_webhook_log('sepay', payment_data['event_type'], payload, processed=False)
 
     transfer_content = payment_data['transfer_content']
     amount = payment_data['amount']
-    transaction_code = payment_data['transaction_code'] or f"VQR-{int(datetime.now().timestamp())}"
+    transfer_type = payment_data['transfer_type']
+    transaction_code = payment_data['transaction_code'] or f"SEPAY-{int(datetime.now().timestamp())}"
+
+    if transfer_type and transfer_type != 'in':
+        if log_id:
+            OrderModel.update_webhook_log_processed(log_id, True)
+        return jsonify({'success': True, 'message': 'Bỏ qua giao dịch không phải tiền vào.'}), 200
 
     if not transfer_content:
-        return jsonify({'message': 'Thiếu nội dung chuyển khoản để đối soát.'}), 400
+        return jsonify({'success': True, 'message': 'Thiếu nội dung chuyển khoản để đối soát.'}), 200
 
     order_id = _get_order_id_from_transfer_content(transfer_content)
     if not order_id:
-        return jsonify({'message': 'Không tìm thấy đơn hàng khớp nội dung chuyển khoản.'}), 404
+        return jsonify({'success': True, 'message': 'Không tìm thấy đơn hàng khớp nội dung chuyển khoản.'}), 200
 
     order = OrderModel.get_by_id(order_id)
     if not order:
-        return jsonify({'message': 'Không tìm thấy đơn hàng.'}), 404
+        return jsonify({'success': True, 'message': 'Không tìm thấy đơn hàng.'}), 200
 
     if order.get('status') == 'cancelled':
-        return jsonify({'message': 'Đơn hàng đã hủy, không thể xác nhận thanh toán.'}), 400
+        return jsonify({'success': True, 'message': 'Đơn hàng đã hủy, không thể xác nhận thanh toán.'}), 200
 
     if not order.get('payment_transaction'):
         OrderModel.create_payment_transaction(
@@ -408,11 +424,11 @@ def vietqr_webhook():
     if order.get('payment_status') == 'paid':
         if log_id:
             OrderModel.update_webhook_log_processed(log_id, True)
-        return jsonify({'message': 'Đơn hàng đã được xác nhận trước đó.', 'order': _serialize_order(order)}), 200
+        return jsonify({'success': True, 'message': 'Đơn hàng đã được xác nhận trước đó.', 'order': _serialize_order(order)}), 200
 
     if amount is None or int(order.get('total_amount', 0) or 0) != amount:
         OrderModel.mark_transaction_failed(order_id, payload)
-        return jsonify({'message': 'Số tiền giao dịch không khớp với đơn hàng.'}), 400
+        return jsonify({'success': True, 'message': 'Số tiền giao dịch không khớp với đơn hàng.'}), 200
 
     next_status = order.get('status') if order.get('status') in {'processing', 'completed'} else 'processing'
     success_status = OrderModel.update_status(order_id, next_status)
@@ -420,13 +436,14 @@ def vietqr_webhook():
     success_tx = OrderModel.mark_transaction_success(order_id, transaction_code)
 
     if not success_status or not success_payment or not success_tx:
-        return jsonify({'message': 'Không thể cập nhật trạng thái thanh toán.'}), 500
+        return jsonify({'success': False, 'message': 'Không thể cập nhật trạng thái thanh toán.'}), 500
 
     updated_order = OrderModel.get_by_id(order_id)
     if log_id:
         OrderModel.update_webhook_log_processed(log_id, True)
 
     return jsonify({
+        'success': True,
         'message': 'Đã tự động xác nhận thanh toán thành công.',
         'order': _serialize_order(updated_order),
     }), 200
